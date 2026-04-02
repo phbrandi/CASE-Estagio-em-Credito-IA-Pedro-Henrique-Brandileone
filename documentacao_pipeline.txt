@@ -1,0 +1,210 @@
+Documentação Técnica — Pipeline de Monitoramento de Crédito
+=============================================================
+
+Projeto: CASE Estágio em Crédito IA — Pedro Henrique Brandileone
+Data de entrega: 02/04/2026
+
+─────────────────────────────────────────────
+1. VISÃO GERAL
+─────────────────────────────────────────────
+
+Pipeline automatizado que coleta notícias e comunicados públicos de 15 empresas brasileiras,
+classifica cada item com inteligência artificial (Claude Haiku) e gera um dashboard HTML
+interativo com análise de sentimento, severidade, tendências e projeção de preço — projetado
+para apoiar decisões de crédito corporativo.
+
+Empresas monitoradas (15):
+  OceanPact (OPCT3) · Brava Energia (BRAV3) · PetroRio (PRIO3) · PetroReconcavo (RECV3) ·
+  NTS (NTSB11) · Aegea (AGYS3) · Equatorial (EQTL3) · Copasa (CSMG3) · Cosan (CSAN3) ·
+  Vamos (VAMO3) · Mills (MILS3) · Armac (ARML3) · BTG (BPAC11) · Unipar (UNIP6) ·
+  Multiplan (MULT3)
+
+Setores cobertos: Óleo & Gás · Infraestrutura · Serviços Industriais · Financeiro/Outros
+
+─────────────────────────────────────────────
+2. ARQUITETURA E FLUXO DO PIPELINE
+─────────────────────────────────────────────
+
+O pipeline é executado pelo orquestrador `scripts/run.py` em seis etapas sequenciais:
+
+  Etapa 1 — Coleta de links (collector.py / buscar_links)
+    • Busca no Google News RSS (feedparser) com query "{empresa} site:br OR finanças"
+    • Raspa a página de RI de cada empresa (requests + BeautifulSoup)
+    • Extrai título, URL e data de publicação de cada item
+    • Descarta itens anteriores a 01/10/2025 (janela de 180 dias retroativos)
+
+  Etapa 2 — Deduplicação (collector.py / deduplicar)
+    • 1ª passagem: hash SHA256 da URL normalizada (lowercase, sem trailing slash)
+    • 2ª passagem: similaridade de título via difflib.SequenceMatcher (threshold 0.85)
+    • Elimina duplicatas antes da extração de snippets para economizar requisições
+
+  Etapa 3 — Extração de snippets (collector.py / extrair_snippets_playwright)
+    • Browser Chromium headless via Playwright executa os redirects JavaScript do Google News
+    • 10 abas em paralelo via asyncio.Semaphore para eficiência
+    • Extrai até 1.500 caracteres do texto real do artigo (parágrafos <p>)
+    • Comunicados de RI scrapeados diretamente com requests (sem JS necessário)
+
+  Etapa 4 — Classificação (classifier.py / classify_llm)
+    • Modelo: claude-haiku-4-5-20251001 (API Anthropic)
+    • Entrada: título + snippet do artigo
+    • Saída JSON com 4 campos:
+        sentimento  → "positivo" | "neutro" | "negativo"
+        severidade  → 1 (baixo) | 2 (médio) | 3 (alto impacto)
+        tags        → lista de temas (ex: ["resultados", "endividamento"])
+        resumo_curto → 1-2 frases objetivas com dados concretos
+    • Rate limiting: sleep de 0.5s entre chamadas
+    • Fallback: em caso de falha de API, item recebe classificação neutra/severidade 1
+
+  Etapa 5 — Coleta de preços históricos (fetch_stocks.py)
+    • yfinance com sufixo .SA para tickers da B3
+    • Período: últimos 6 meses (period="6mo")
+    • Colunas: open, high, low, close, volume
+    • NTS (NTSB11) e Aegea (AGYS3) não possuem cotação no Yahoo Finance → warning, sem dados
+
+  Etapa 6 — Geração do dashboard (generate_dashboard.py)
+    • Lê news.csv + stock_data.csv + companies.csv
+    • Emite output/dashboard.html: arquivo HTML único autocontido (~1.1 MB)
+    • Dados embutidos como JSON no HTML (sem requisições externas em runtime)
+    • Toda lógica de filtragem e renderização de gráficos em JavaScript via Chart.js 4.4.0
+
+Salvamento incremental: o news.csv é sobrescrito após cada empresa processada para evitar
+perda de progresso em caso de interrupção.
+
+─────────────────────────────────────────────
+3. ESTRUTURA DE PASTAS
+─────────────────────────────────────────────
+
+/
+├── .env                        # ANTHROPIC_API_KEY
+├── companies.csv               # Cadastro das 15 empresas (empresa, ticker, setor, ri_url)
+├── requirements.txt            # Dependências Python
+├── CLAUDE.md                   # Contexto técnico do projeto (para uso com Claude Code)
+├── README.md                   # Documentação para usuário final
+├── dashboard.txt               # Guia descritivo do dashboard (abas e gráficos)
+├── documentacao_pipeline.txt   # Este arquivo
+├── /scripts
+│   ├── run.py                  # Orquestrador principal
+│   ├── collector.py            # Coleta (Google News RSS + RI) + Playwright
+│   ├── classifier.py           # Classificação via Claude Haiku
+│   ├── fetch_stocks.py         # Preços históricos via yfinance (B3)
+│   └── generate_dashboard.py   # Gera output/dashboard.html
+├── /output
+│   ├── news.csv                # Notícias coletadas e classificadas (12 colunas)
+│   ├── stock_data.csv          # Preços históricos das ações (8 colunas)
+│   └── dashboard.html          # Dashboard interativo — output principal
+└── /logs
+    └── run.log                 # Log detalhado de cada execução
+
+─────────────────────────────────────────────
+4. DEPENDÊNCIAS
+─────────────────────────────────────────────
+
+Todas as dependências estão listadas em requirements.txt:
+
+  anthropic       → SDK oficial da Anthropic para chamadas ao Claude Haiku
+  python-dotenv   → Carrega variáveis de ambiente do arquivo .env
+  pandas          → Manipulação de DataFrames (CSV de entrada e saída)
+  requests        → Requisições HTTP para raspagem de páginas de RI
+  beautifulsoup4  → Parse de HTML das páginas de RI e extração de texto
+  feedparser      → Parse de feeds RSS do Google News
+  lxml            → Parser HTML/XML de alto desempenho (backend do feedparser/BS4)
+  playwright      → Browser Chromium headless para seguir redirects JS do Google News
+  yfinance        → Coleta de dados históricos de preço da B3 via Yahoo Finance
+
+Instalação:
+  pip install -r requirements.txt
+  python -m playwright install chromium   # apenas na primeira vez
+
+─────────────────────────────────────────────
+5. CONFIGURAÇÃO
+─────────────────────────────────────────────
+
+Variável obrigatória no arquivo .env:
+
+  ANTHROPIC_API_KEY=sk-ant-...
+
+Sem essa chave, a etapa de classificação falha para todos os itens (o pipeline continua,
+mas os campos sentimento/severidade/tags/resumo_curto ficam com valores padrão).
+
+─────────────────────────────────────────────
+6. EXECUÇÃO
+─────────────────────────────────────────────
+
+Pipeline completo (coleta + classifica + preços + dashboard):
+  python scripts/run.py
+
+Apenas atualizar dados de preço:
+  python scripts/fetch_stocks.py
+
+Apenas regenerar o dashboard (sem re-coletar notícias):
+  python scripts/generate_dashboard.py
+
+Tempo estimado de execução completa: 20–40 minutos dependendo da velocidade de rede e
+do volume de itens a classificar (limitado pelo rate limiting da API Anthropic).
+
+─────────────────────────────────────────────
+7. OUTPUTS
+─────────────────────────────────────────────
+
+output/news.csv — 12 colunas:
+  empresa           Nome da empresa
+  ticker            Código B3 (sem .SA)
+  data_publicacao   ISO 8601 UTC
+  fonte             "Google News" ou "RI {empresa}"
+  tipo              "noticia" ou "comunicado_oficial"
+  titulo            Título do item
+  url               URL original
+  snippet_ou_trecho Texto extraído pelo Playwright (até 1.500 chars)
+  sentimento        "positivo" | "neutro" | "negativo"
+  tags              Temas separados por ";" (ex: "resultados;endividamento")
+  severidade        1 (baixo) | 2 (médio) | 3 (alto)
+  resumo_curto      1-2 frases com dados concretos geradas pelo Claude
+
+output/stock_data.csv — 8 colunas:
+  empresa, ticker, date, open, high, low, close, volume
+
+output/dashboard.html — arquivo HTML único autocontido:
+  Aba 1 — Visão Geral: últimas notícias, alertas críticos, tendência de sentimento por semana,
+          ranking temático, score de atenção por empresa, análise por setor
+  Aba 2 — Análise Histórica: preço normalizado com fundo de sentimento rolling 7 dias,
+          marcadores de eventos clicáveis, scatter sentimento vs. retorno semanal com
+          regressão linear, projeção de retorno para a próxima semana
+  Aba 3 — Explorador de Notícias: tabela completa com filtros em tempo real
+
+─────────────────────────────────────────────
+8. DECISÕES TÉCNICAS
+─────────────────────────────────────────────
+
+• Fontes abertas apenas: Google News RSS + páginas de RI públicas. Sem paywall, sem login.
+
+• Playwright para extração de snippets: o Google News não entrega o conteúdo diretamente —
+  cada link é um redirect JavaScript para a URL original. O Playwright executa esse redirect
+  em um browser headless e extrai o texto do artigo, garantindo snippets com conteúdo real
+  em vez de descrições genéricas do RSS.
+
+• Claude Haiku como classificador: modelo leve e econômico da Anthropic, adequado para
+  classificação em escala. Instrução de sistema define formato de resposta JSON estrito.
+
+• Deduplicação em 2 passagens: URL hash elimina duplicatas exatas; SequenceMatcher
+  (threshold 0.85) captura variações de título do mesmo artigo publicado em fontes diferentes.
+
+• Dashboard autocontido: todos os dados são embutidos como JSON no HTML. O arquivo funciona
+  offline (exceto Chart.js carregado via CDN). Não requer servidor web.
+
+• Fundo de sentimento rolling 7 dias (Gráfico A): plugin customizado Chart.js (`sentBg`)
+  desenhado no evento `beforeDraw`. Segmentos coloridos são calculados como média ponderada
+  do sentimento de todos os itens nos 7 dias anteriores a cada data.
+
+• Projeção de preço (Gráfico C): regressão linear simples entre score de sentimento semanal
+  e retorno semanal calculada sobre todo o histórico disponível. O resultado é apresentado
+  num gráfico de 3 pontos (semana passada / hoje / +1 semana) para maximizar clareza.
+
+• Encoding UTF-8 com BOM (utf-8-sig): garante abertura correta dos CSVs no Excel sem
+  caracteres corrompidos em nomes com acentos.
+
+• Logging duplo: arquivo logs/run.log + terminal, com timestamp em cada linha. Facilita
+  diagnóstico de falhas em execuções longas.
+
+• Tratamento de erros: todo bloco de rede, API e parsing está envolto em try/except. O
+  pipeline nunca interrompe por falha em uma única empresa ou item — apenas loga o erro
+  e continua.

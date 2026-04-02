@@ -85,7 +85,7 @@ body{background:#0A0E1A;color:#F9FAFB;font-family:-apple-system,BlinkMacSystemFo
 
 <div class="hdr">
   <div><h1>Monitor de Crédito</h1><p>Portfólio de Acompanhamento — 15 empresas</p></div>
-  <div class="hdr-r"><div>Gerado em 02/04/2026 16:41</div><div>Período: 07/10/2025 &rarr; 02/04/2026</div></div>
+  <div class="hdr-r"><div>Gerado em 02/04/2026 19:40</div><div>Período: 07/10/2025 &rarr; 02/04/2026</div></div>
 </div>
 <nav class="tabs">
   <button class="tab-btn" onclick="showTab(1)">Visão Geral</button>
@@ -179,7 +179,7 @@ body{background:#0A0E1A;color:#F9FAFB;font-family:-apple-system,BlinkMacSystemFo
       <span><span class="cleg-c" style="background:#EF4444"></span>Evento negativo</span>
       <span><span class="cleg-c" style="background:#6B7280"></span>Evento neutro</span>
       <span><span class="cleg-c" style="background:#F59E0B"></span>Alerta sev.3</span>
-      <span style="color:#4B5563;font-size:10px;font-style:italic">Linhas coloridas por setor — fundo verde/vermelho = sentimento 7 dias (ao filtrar empresa ou setor)</span>
+      <span style="color:#4B5563;font-size:10px;font-style:italic">Linhas coloridas por empresa — fundo verde/vermelho = sentimento 7 dias (ao filtrar empresa ou setor)</span>
     </div>
     <div class="cwl"><canvas id="ca"></canvas></div>
     <div style="color:#4B5563;font-size:11px;margin-top:6px">* NTS: debênture sem cotação. Aegea: ticker indisponível no Yahoo Finance.</div>
@@ -252,6 +252,7 @@ const DATA_STOCKS    = [{"empresa": "Armac", "ticker": "ARML3", "date": "2025-10
 const DATA_COMPANIES = [{"empresa": "OceanPact", "ticker": "OPCT3", "setor": "Óleo & Gás", "segmento": "Serviços Ambientais e Offshore", "ri_url": "https://ri.oceanpact.com"}, {"empresa": "Brava Energia", "ticker": "BRAV3", "setor": "Óleo & Gás", "segmento": "Exploração e Produção", "ri_url": "https://ri.bravaenergia.com.br"}, {"empresa": "PetroRio", "ticker": "PRIO3", "setor": "Óleo & Gás", "segmento": "Exploração e Produção", "ri_url": "https://ri.petro-rio.com.br"}, {"empresa": "PetroReconcavo", "ticker": "RECV3", "setor": "Óleo & Gás", "segmento": "Exploração e Produção", "ri_url": "https://ri.petroreconcavo.com.br"}, {"empresa": "NTS", "ticker": "NTSB11", "setor": "Infraestrutura", "segmento": "Transporte de Gás Natural", "ri_url": "https://www.nts.com.br/relacoes-com-investidores"}, {"empresa": "Aegea", "ticker": "AGYS3", "setor": "Infraestrutura", "segmento": "Saneamento", "ri_url": "https://ri.aegea.com.br"}, {"empresa": "Equatorial", "ticker": "EQTL3", "setor": "Infraestrutura", "segmento": "Energia Elétrica", "ri_url": "https://ri.equatorial.com.br"}, {"empresa": "Copasa", "ticker": "CSMG3", "setor": "Infraestrutura", "segmento": "Saneamento", "ri_url": "https://ri.copasa.com.br"}, {"empresa": "Cosan", "ticker": "CSAN3", "setor": "Infraestrutura", "segmento": "Holding Diversificada", "ri_url": "https://ri.cosan.com.br"}, {"empresa": "Vamos", "ticker": "VAMO3", "setor": "Serviços Industriais", "segmento": "Locação de Frotas", "ri_url": "https://ri.vamos.com.br"}, {"empresa": "Mills", "ticker": "MILS3", "setor": "Serviços Industriais", "segmento": "Serviços Industriais", "ri_url": "https://ri.mills.com.br"}, {"empresa": "Armac", "ticker": "ARML3", "setor": "Serviços Industriais", "segmento": "Locação de Equipamentos", "ri_url": "https://ri.armac.com.br"}, {"empresa": "BTG", "ticker": "BPAC11", "setor": "Financeiro", "segmento": "Banco de Investimento", "ri_url": "https://ri.btgpactual.com"}, {"empresa": "Unipar", "ticker": "UNIP6", "setor": "Petroquímica", "segmento": "Indústria Química", "ri_url": "https://ri.unipar.com"}, {"empresa": "Multiplan", "ticker": "MULT3", "setor": "Imobiliário", "segmento": "Shopping Centers", "ri_url": "https://ri.multiplan.com.br"}];
 const SECTOR_COLORS  = {"Óleo & Gás": "#F59E0B", "Infraestrutura": "#3B82F6", "Serviços Industriais": "#8B5CF6", "Financeiro/Outros": "#10B981"};
 const COMPANY_SECTORS= {"OceanPact": "Óleo & Gás", "Brava Energia": "Óleo & Gás", "PetroRio": "Óleo & Gás", "PetroReconcavo": "Óleo & Gás", "NTS": "Óleo & Gás", "Aegea": "Infraestrutura", "Equatorial": "Infraestrutura", "Copasa": "Infraestrutura", "Cosan": "Infraestrutura", "Vamos": "Serviços Industriais", "Mills": "Serviços Industriais", "Armac": "Serviços Industriais", "BTG": "Financeiro/Outros", "Unipar": "Financeiro/Outros", "Multiplan": "Financeiro/Outros"};
+const COMPANY_COLORS = {"OceanPact": "#F59E0B", "Brava Energia": "#EF4444", "PetroRio": "#3B82F6", "PetroReconcavo": "#10B981", "NTS": "#F97316", "Aegea": "#8B5CF6", "Equatorial": "#06B6D4", "Copasa": "#EC4899", "Cosan": "#84CC16", "Vamos": "#F43F5E", "Mills": "#14B8A6", "Armac": "#A855F7", "BTG": "#FBBF24", "Unipar": "#34D399", "Multiplan": "#38BDF8"};
 
 Chart.defaults.color       = '#9CA3AF';
 Chart.defaults.borderColor = '#1F2937';
@@ -295,6 +296,7 @@ Chart.register({
 
 // ── Helpers ────────────────────────────────────────────────────
 function sc(emp){ return SECTOR_COLORS[COMPANY_SECTORS[emp]]||'#9CA3AF'; }
+function cc(emp){ return COMPANY_COLORS[emp]||sc(emp); }
 function fd(iso){ if(!iso||iso.length<10)return ''; const p=iso.substring(0,10).split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
 function sa(s){
   if(s==='positivo')return '<span style="color:#34D399;font-weight:bold">&#9650;</span>';
@@ -568,7 +570,7 @@ function renderPriceEvents(news,stocks,useBg){
   });
   const datasets=[];
   companies.forEach(emp=>{
-    datasets.push({type:'line',label:emp,data:allDates.map((_,i)=>({x:i,y:priceMap[emp][allDates[i]]!==undefined?priceMap[emp][allDates[i]]:null})),borderColor:sc(emp),borderWidth:companies.length===1?2:1.5,pointRadius:0,spanGaps:false,tension:0.1,order:3});
+    datasets.push({type:'line',label:emp,data:allDates.map((_,i)=>({x:i,y:priceMap[emp][allDates[i]]!==undefined?priceMap[emp][allDates[i]]:null})),borderColor:cc(emp),borderWidth:companies.length===1?2:1.5,pointRadius:0,spanGaps:false,tension:0.1,order:3});
   });
   // Eventos: apenas de empresas visíveis no gráfico
   const evtMap={};

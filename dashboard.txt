@@ -1,0 +1,79 @@
+Dashboard — Monitor de Crédito: Guia de Abas e Gráficos
+==========================================================
+
+O dashboard (output/dashboard.html) é um arquivo HTML autocontido com tema escuro e três abas.
+Abra diretamente no navegador — não requer servidor.
+
+─────────────────────────────────────────────
+ABA 1 — VISÃO GERAL
+─────────────────────────────────────────────
+
+Coluna esquerda:
+• Últimas notícias (lista cronológica) — exibe as 20 notícias mais recentes com badge de
+  sentimento colorido (verde/cinza/vermelho), severidade e link para a URL original.
+  Clique no título para abrir a notícia.
+• Alertas críticos — painel em destaque listando todos os itens com severidade 3 (alto
+  impacto), separados por empresa.
+
+Coluna direita (empilhados verticalmente):
+• Distribuição de sentimento por período — gráfico de barras empilhadas mostrando contagem
+  de itens positivos, neutros e negativos por semana. Permite visualizar tendências de humor
+  do noticiário ao longo do tempo.
+• Ranking temático — tabela com os temas (tags) mais frequentes no período, ordenados por
+  ocorrência total. Cada tema exibe contagem e barra de proporção.
+
+Linha inferior:
+• Score de atenção por empresa — ranking de 1 a 15 empresas ordenado por score composto
+  (combina volume de notícias, proporção negativa e severidade média). Empresas com maior
+  necessidade de atenção aparecem no topo.
+• Análise por setor — tabela mostrando distribuição de sentimento e severidade média por
+  setor (Óleo & Gás, Infraestrutura, Serviços Industriais, Financeiro/Outros).
+
+─────────────────────────────────────────────
+ABA 2 — ANÁLISE HISTÓRICA
+─────────────────────────────────────────────
+
+Seletor de contexto (botões no topo):
+• Três modos: "Todas as Empresas", seleção por setor, seleção por empresa individual.
+  Todos os gráficos desta aba atualizam ao trocar o modo.
+
+Gráfico A — Preço das Ações + Eventos:
+• Linhas de preço normalizado (base 100 = primeiro dia do período) para cada empresa/setor
+  selecionado, permitindo comparação de retorno relativo.
+• Fundo colorido em rolling 7 dias — segmentos verde/cinza/vermelho indicam o sentimento
+  predominante das notícias de cada janela de 7 dias. Quanto mais vibrante a cor, maior a
+  concentração de notícias com aquele sentimento.
+• Marcadores de eventos — pontos clicáveis sobre as linhas de preço nas datas com notícias
+  de severidade 2 ou 3. Clicar em um marcador exibe o título e resumo da notícia e abre
+  a URL original.
+
+Gráfico B — Sentimento vs. Retorno Semanal (scatter):
+• Cada ponto representa uma semana: eixo X = score de sentimento médio (positivo=+1,
+  neutro=0, negativo=-1), eixo Y = retorno percentual da ação na mesma semana.
+• Linha de regressão linear traçada sobre os pontos para indicar correlação entre
+  sentimento do noticiário e performance de preço.
+• Coeficiente de correlação (r²) exibido no canto do gráfico.
+
+Gráfico C — Projeção para a Próxima Semana:
+• Eixo X com apenas três pontos: "Semana Passada", "Hoje" e "+1 Semana".
+• Barra de "Hoje" mostra o retorno acumulado recente; barra de "+1 Semana" é a projeção
+  calculada pelo modelo de regressão (sentimento médio atual → retorno estimado).
+• O histórico completo é usado internamente para calibrar a regressão, mas não é exibido —
+  o foco é a previsão, não o retrospecto.
+
+─────────────────────────────────────────────
+ABA 3 — EXPLORADOR DE NOTÍCIAS
+─────────────────────────────────────────────
+
+• Tabela completa com todas as notícias coletadas e classificadas, paginada em grupos de 50.
+• Filtros em tempo real (atualizados a cada tecla digitada ou seleção):
+    - Busca por texto livre (título ou resumo)
+    - Empresa (dropdown)
+    - Setor (dropdown)
+    - Sentimento: positivo / neutro / negativo
+    - Severidade: 1 / 2 / 3
+    - Tema/tag (dropdown com todos os temas identificados)
+• Contador de resultados mostra quantos itens correspondem aos filtros ativos.
+• Cada linha exibe: data, empresa, título (clicável → abre URL original), fonte, sentimento,
+  severidade e resumo gerado pelo modelo.
+• Botão "Limpar filtros" restaura a tabela completa.

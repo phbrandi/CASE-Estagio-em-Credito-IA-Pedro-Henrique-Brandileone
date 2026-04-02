@@ -34,6 +34,30 @@ COMPANY_SECTORS = {
     "BTG": "Financeiro/Outros", "Unipar": "Financeiro/Outros", "Multiplan": "Financeiro/Outros",
 }
 
+# Cor individual por empresa — usada nas linhas do Gráfico A para diferenciar dentro do setor.
+# Cores intencionalmente misturadas entre setores para máximo contraste visual.
+COMPANY_COLORS = {
+    # Óleo & Gás: âmbar, vermelho, azul, esmeralda, laranja — famílias distintas
+    "OceanPact":      "#F59E0B",  # âmbar
+    "Brava Energia":  "#EF4444",  # vermelho
+    "PetroRio":       "#3B82F6",  # azul
+    "PetroReconcavo": "#10B981",  # esmeralda
+    "NTS":            "#F97316",  # laranja
+    # Infraestrutura: violeta, ciano, rosa-quente, lima — famílias distintas
+    "Aegea":          "#8B5CF6",  # violeta
+    "Equatorial":     "#06B6D4",  # ciano
+    "Copasa":         "#EC4899",  # rosa-quente
+    "Cosan":          "#84CC16",  # lima
+    # Serviços Industriais: rosa-vivo, teal, roxo
+    "Vamos":          "#F43F5E",  # rosa-vivo
+    "Mills":          "#14B8A6",  # teal
+    "Armac":          "#A855F7",  # roxo
+    # Financeiro/Outros: amarelo, verde-menta, azul-céu
+    "BTG":            "#FBBF24",  # amarelo
+    "Unipar":         "#34D399",  # verde-menta
+    "Multiplan":      "#38BDF8",  # azul-céu
+}
+
 
 def main() -> None:
     df_comp   = pd.read_csv(ROOT / "companies.csv", encoding="utf-8")
@@ -83,6 +107,7 @@ def main() -> None:
     json_companies       = json.dumps(companies_list,  ensure_ascii=False)
     json_sector_colors   = json.dumps(SECTOR_COLORS,   ensure_ascii=False)
     json_company_sectors = json.dumps(COMPANY_SECTORS, ensure_ascii=False)
+    json_company_colors  = json.dumps(COMPANY_COLORS,  ensure_ascii=False)
 
     generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
     valid_dt = df_news["_dt"].dropna()
@@ -95,6 +120,7 @@ def main() -> None:
     html = html.replace("INJECT_DATA_COMPANIES",  json_companies)
     html = html.replace("INJECT_SECTOR_COLORS",   json_sector_colors)
     html = html.replace("INJECT_COMPANY_SECTORS", json_company_sectors)
+    html = html.replace("INJECT_COMPANY_COLORS",  json_company_colors)
     html = html.replace("INJECT_GENERATED_AT",    generated_at)
     html = html.replace("INJECT_DATE_MIN",        date_min)
     html = html.replace("INJECT_DATE_MAX",        date_max)
@@ -290,7 +316,7 @@ body{background:#0A0E1A;color:#F9FAFB;font-family:-apple-system,BlinkMacSystemFo
       <span><span class="cleg-c" style="background:#EF4444"></span>Evento negativo</span>
       <span><span class="cleg-c" style="background:#6B7280"></span>Evento neutro</span>
       <span><span class="cleg-c" style="background:#F59E0B"></span>Alerta sev.3</span>
-      <span style="color:#4B5563;font-size:10px;font-style:italic">Linhas coloridas por setor — fundo verde/vermelho = sentimento 7 dias (ao filtrar empresa ou setor)</span>
+      <span style="color:#4B5563;font-size:10px;font-style:italic">Linhas coloridas por empresa — fundo verde/vermelho = sentimento 7 dias (ao filtrar empresa ou setor)</span>
     </div>
     <div class="cwl"><canvas id="ca"></canvas></div>
     <div style="color:#4B5563;font-size:11px;margin-top:6px">* NTS: debênture sem cotação. Aegea: ticker indisponível no Yahoo Finance.</div>
@@ -363,6 +389,7 @@ const DATA_STOCKS    = INJECT_DATA_STOCKS;
 const DATA_COMPANIES = INJECT_DATA_COMPANIES;
 const SECTOR_COLORS  = INJECT_SECTOR_COLORS;
 const COMPANY_SECTORS= INJECT_COMPANY_SECTORS;
+const COMPANY_COLORS = INJECT_COMPANY_COLORS;
 
 Chart.defaults.color       = '#9CA3AF';
 Chart.defaults.borderColor = '#1F2937';
@@ -406,6 +433,7 @@ Chart.register({
 
 // ── Helpers ────────────────────────────────────────────────────
 function sc(emp){ return SECTOR_COLORS[COMPANY_SECTORS[emp]]||'#9CA3AF'; }
+function cc(emp){ return COMPANY_COLORS[emp]||sc(emp); }
 function fd(iso){ if(!iso||iso.length<10)return ''; const p=iso.substring(0,10).split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
 function sa(s){
   if(s==='positivo')return '<span style="color:#34D399;font-weight:bold">&#9650;</span>';
@@ -679,7 +707,7 @@ function renderPriceEvents(news,stocks,useBg){
   });
   const datasets=[];
   companies.forEach(emp=>{
-    datasets.push({type:'line',label:emp,data:allDates.map((_,i)=>({x:i,y:priceMap[emp][allDates[i]]!==undefined?priceMap[emp][allDates[i]]:null})),borderColor:sc(emp),borderWidth:companies.length===1?2:1.5,pointRadius:0,spanGaps:false,tension:0.1,order:3});
+    datasets.push({type:'line',label:emp,data:allDates.map((_,i)=>({x:i,y:priceMap[emp][allDates[i]]!==undefined?priceMap[emp][allDates[i]]:null})),borderColor:cc(emp),borderWidth:companies.length===1?2:1.5,pointRadius:0,spanGaps:false,tension:0.1,order:3});
   });
   // Eventos: apenas de empresas visíveis no gráfico
   const evtMap={};
