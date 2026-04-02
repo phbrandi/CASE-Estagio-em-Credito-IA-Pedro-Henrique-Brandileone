@@ -5,7 +5,5 @@ requests
 beautifulsoup4
 feedparser
 lxml
-matplotlib
-seaborn
-reportlab
 playwright
+yfinance

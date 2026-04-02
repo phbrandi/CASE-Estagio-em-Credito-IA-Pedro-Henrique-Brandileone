@@ -4,9 +4,10 @@ run.py — Orquestrador principal do pipeline de monitoramento de crédito.
 Fluxo:
   1. Configura logging (arquivo + terminal)
   2. Carrega companies.csv
-  3. Para cada empresa: coleta links, extrai snippets, deduplica, classifica
-  4. Salva output/news.csv com 12 colunas
-  5. Gera gráficos e PDF via monitor.py
+  3. Para cada empresa: coleta links, extrai snippets (Playwright), deduplica, classifica
+  4. Salva output/news.csv com 12 colunas (salva incrementalmente após cada empresa)
+  5. Coleta dados históricos de preço via yfinance → output/stock_data.csv
+  6. Gera output/dashboard.html (dashboard interativo autocontido)
 """
 
 import csv
@@ -74,9 +75,8 @@ def tags_para_string(tags) -> str:
 def main() -> None:
     # Cria pastas necessárias
     output_dir = ROOT / "output"
-    charts_dir = output_dir / "charts"
     logs_dir = ROOT / "logs"
-    for d in [output_dir, charts_dir, logs_dir]:
+    for d in [output_dir, logs_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
     configurar_logging(logs_dir / "run.log")
@@ -173,16 +173,27 @@ def main() -> None:
     logger.info("  Severidades: %s", dict(severidades))
     logger.info("=" * 60)
 
-    # Gera relatório (monitor.py)
+    # Coleta dados históricos de preço (yfinance)
+    logger.info("Coletando dados históricos de preço via yfinance...")
     try:
-        from scripts.monitor import gerar_relatorio
-        logger.info("Gerando gráficos e PDF do monitor...")
-        gerar_relatorio(output_csv)
-        logger.info("Monitor gerado com sucesso.")
+        from scripts.fetch_stocks import main as fetch_stocks_main
+        fetch_stocks_main()
+        logger.info("stock_data.csv gerado com sucesso.")
     except Exception as exc:
-        logger.error("Erro ao gerar monitor: %s", exc)
+        logger.error("Erro ao coletar dados de preço: %s. Dashboard será gerado sem dados de ações.", exc)
 
-    print(f"\nPipeline concluído. {len(df)} itens salvos em output/news.csv")
+    # Gera dashboard HTML interativo
+    logger.info("Gerando dashboard HTML...")
+    try:
+        from scripts.generate_dashboard import main as dashboard_main
+        dashboard_main()
+        logger.info("Dashboard gerado: output/dashboard.html")
+    except Exception as exc:
+        logger.error("Erro ao gerar dashboard: %s", exc)
+
+    print(f"\nPipeline concluído.")
+    print(f"  {len(df)} notícias classificadas → output/news.csv")
+    print(f"  Dashboard interativo         → output/dashboard.html")
 
 
 if __name__ == "__main__":
