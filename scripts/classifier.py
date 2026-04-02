@@ -48,14 +48,14 @@ Retorne APENAS um JSON válido com exatamente este schema (sem texto adicional, 
   "sentimento": "positivo|neutro|negativo",
   "tags": ["tag1", "tag2"],
   "severidade": 1,
-  "resumo_curto": "1-2 linhas objetivas sobre o evento"
+  "resumo_curto": "1-2 frases informativas sobre o evento"
 }}
 
 Regras:
 - sentimento: escolha exatamente um entre positivo, neutro ou negativo
 - tags: lista com 1 ou mais dos valores: liquidez_refinanciamento, resultado_guidance, governanca, legal_regulatorio, operacional_incidente, m&a_estrategia, setor_macro, esg_reputacional
 - severidade: 1 (baixo impacto/ruído), 2 (relevante, merece atenção), 3 (potencialmente material)
-- resumo_curto: string objetiva de 1-2 linhas
+- resumo_curto: 1-2 frases que informem o leitor de forma objetiva. Inclua obrigatoriamente dados concretos presentes no trecho: valores em R$ ou USD, percentuais, volumes, datas, nomes de partes envolvidas, ratings. Se o trecho não tiver dados quantitativos, descreva o fato central com o máximo de especificidade possível. NUNCA escreva frases vagas como "a empresa anunciou resultados" — diga o que foram os resultados.
 
 Retorne SOMENTE o JSON, sem nenhum texto antes ou depois."""
 
@@ -92,12 +92,12 @@ def _chamar_api(client: anthropic.Anthropic, titulo: str, trecho: str) -> dict |
     """Chama a API e retorna o dict classificado ou None em caso de falha."""
     prompt = PROMPT_TEMPLATE.format(
         titulo=titulo[:300],
-        trecho=trecho[:500] if trecho else "(sem trecho disponível)",
+        trecho=trecho[:1500] if trecho else "(sem trecho disponível)",
     )
     try:
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=512,
+            max_tokens=700,
             messages=[{"role": "user", "content": prompt}],
         )
         texto = msg.content[0].text.strip()

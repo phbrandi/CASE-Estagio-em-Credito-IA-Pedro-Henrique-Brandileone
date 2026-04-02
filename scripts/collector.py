@@ -100,8 +100,8 @@ def _dentro_periodo(date_iso: str, dias: int = PERIODO_DIAS) -> bool:
         limite = datetime.now(timezone.utc) - timedelta(days=dias)
         return dt >= limite
     except Exception:
-        # Se não conseguir parsear, inclui para não descartar por erro
-        return True
+        # Se não conseguir parsear (ex: "desconhecida"), descarta — não inclui item sem data
+        return False
 
 
 def _coletar_google_news(empresa: dict) -> list[dict]:
@@ -119,8 +119,15 @@ def _coletar_google_news(empresa: dict) -> list[dict]:
         for entry in feed.entries:
             titulo = entry.get("title", "").strip()
             link = entry.get("link", "").strip()
-            published = entry.get("published", "")
-            data_iso = _parse_date(published)
+
+            # Usa published_parsed (struct_time) quando disponível — mais confiável que a string
+            published_parsed = entry.get("published_parsed")
+            if published_parsed:
+                import calendar
+                ts = calendar.timegm(published_parsed)
+                data_iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+            else:
+                data_iso = _parse_date(entry.get("published", ""))
 
             if not titulo or not link or not link.startswith("http"):
                 continue
@@ -164,7 +171,6 @@ def _coletar_ri(empresa: dict) -> list[dict]:
             logger.warning("RI %s retornou status %d", nome, resp.status_code)
             return []
         soup = BeautifulSoup(resp.content, "lxml")
-        data_atual = datetime.now(timezone.utc).isoformat()
 
         for tag in soup.find_all("a", href=True):
             texto = tag.get_text(strip=True).lower()
@@ -188,11 +194,34 @@ def _coletar_ri(empresa: dict) -> list[dict]:
             if not titulo:
                 continue
 
+            # Tentar extrair data de atributos da tag ou de texto próximo (ex: <td>, <span> irmão)
+            data_iso = ""
+            for attr in ["data-date", "data-time", "datetime", "title"]:
+                val = tag.get(attr, "")
+                if val:
+                    tentativa = _parse_date(val)
+                    if not tentativa.startswith(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")):
+                        data_iso = tentativa
+                        break
+            # Procura texto de data em elementos irmãos próximos
+            if not data_iso:
+                parent = tag.parent
+                if parent:
+                    import re as _re
+                    texto_pai = parent.get_text(" ", strip=True)
+                    # Padrões comuns: 01/04/2026, 2026-04-01, 01 abr 2026
+                    m = _re.search(r'\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{2}[\/\-]\d{2})\b', texto_pai)
+                    if m:
+                        data_iso = _parse_date(m.group(1))
+            # Fallback: data desconhecida (não inventar datetime.now)
+            if not data_iso:
+                data_iso = "desconhecida"
+
             items.append(
                 {
                     "url": url_abs,
                     "titulo": titulo,
-                    "data_publicacao": data_atual,
+                    "data_publicacao": data_iso,
                     "fonte": f"RI {nome}",
                     "tipo": "comunicado_oficial",
                 }
@@ -242,35 +271,151 @@ def extrair_snippet(url: str) -> str:
     if not url or not url.startswith("http"):
         return ""
     try:
-        # allow_redirects=True (padrão) já segue redirecionamentos do Google News
         resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT, allow_redirects=True)
         if resp.status_code != 200:
             logger.debug("Snippet: status %d para %s", resp.status_code, url)
             return ""
+
+        # Se o redirect ficou em domínio do Google, não há conteúdo de artigo
+        final_domain = urlparse(resp.url).netloc.lower()
+        if "google.com" in final_domain:
+            logger.debug("Snippet: redirect ficou no Google para %s", url)
+            return ""
+
         soup = BeautifulSoup(resp.content, "lxml")
 
-        # Título
-        titulo = ""
-        title_tag = soup.find("title")
-        if title_tag:
-            titulo = title_tag.get_text(strip=True)
+        # Remove elementos de navegação/cabeçalho que poluem o texto
+        for tag in soup.find_all(["nav", "header", "footer", "script", "style", "aside"]):
+            tag.decompose()
 
-        # Primeiro parágrafo relevante (mínimo 50 chars)
+        # Busca parágrafos reais: prioriza <p> com texto substancial (>=80 chars),
+        # depois <article>, por último <div>
         paragrafo = ""
-        for tag in soup.find_all(["p", "article", "div"]):
-            texto = tag.get_text(strip=True)
-            if len(texto) >= 50:
-                paragrafo = texto[:300]
+        for selector in [["p"], ["article"], ["div"]]:
+            for tag in soup.find_all(selector):
+                texto = tag.get_text(separator=" ", strip=True)
+                if len(texto) >= 80:
+                    paragrafo = texto[:400]
+                    break
+            if paragrafo:
                 break
 
-        snippet = (titulo + " — " + paragrafo if titulo and paragrafo else titulo or paragrafo)
-        return snippet[:500]
+        return paragrafo[:500]
     except requests.exceptions.Timeout:
         logger.debug("Timeout ao extrair snippet de %s", url)
         return ""
     except Exception as exc:
         logger.debug("Erro ao extrair snippet de %s: %s", url, exc)
         return ""
+
+
+async def _extrair_texto_pagina(page, url: str) -> str:
+    """Navega até a URL com Playwright e extrai o texto principal do artigo."""
+    try:
+        await page.goto(url, timeout=20000, wait_until="domcontentloaded")
+
+        # Remove elementos que poluem o texto (nav, rodapé, anúncios)
+        await page.evaluate("""
+            () => {
+                const seletores = ['nav','header','footer','script','style',
+                                   'aside','[class*="ad-"]','[id*="ad-"]',
+                                   '[class*="banner"]','[class*="cookie"]'];
+                seletores.forEach(s => {
+                    document.querySelectorAll(s).forEach(el => el.remove());
+                });
+            }
+        """)
+
+        # Tenta extrair <article>, depois parágrafos com >= 80 chars
+        texto = await page.evaluate("""
+            () => {
+                const article = document.querySelector('article');
+                if (article) {
+                    const t = article.innerText.replace(/\\s+/g, ' ').trim();
+                    if (t.length >= 80) return t;
+                }
+                const paras = [...document.querySelectorAll('p')]
+                    .map(p => p.innerText.replace(/\\s+/g, ' ').trim())
+                    .filter(t => t.length >= 80)
+                    .join(' ');
+                return paras;
+            }
+        """)
+        return (texto or "")[:1500]
+    except Exception as exc:
+        logger.debug("Playwright: erro em %s — %s", url, exc)
+        return ""
+
+
+async def _extrair_snippets_async(items: list[dict], max_concurrent: int = 10) -> None:
+    """Preenche snippet_ou_trecho nos itens que ainda não têm, em paralelo."""
+    import asyncio
+    from playwright.async_api import async_playwright
+
+    pendentes = [it for it in items if not it.get("snippet_ou_trecho")]
+    if not pendentes:
+        return
+
+    sem = asyncio.Semaphore(max_concurrent)
+    total = len(pendentes)
+    concluidos = 0
+
+    async def processar(browser, item):
+        nonlocal concluidos
+        async with sem:
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0.0.0 Safari/537.36"
+                ),
+                locale="pt-BR",
+            )
+            page = await context.new_page()
+            try:
+                item["snippet_ou_trecho"] = await _extrair_texto_pagina(page, item["url"])
+            finally:
+                await context.close()
+                concluidos += 1
+                if concluidos % 100 == 0:
+                    logger.info("Playwright: %d/%d snippets extraídos", concluidos, total)
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(headless=True)
+        try:
+            await asyncio.gather(*[processar(browser, it) for it in pendentes])
+        finally:
+            await browser.close()
+
+    preenchidos = sum(1 for it in pendentes if it.get("snippet_ou_trecho"))
+    logger.info(
+        "Playwright: %d/%d snippets preenchidos (%d sites bloqueados/vazios)",
+        preenchidos, total, total - preenchidos,
+    )
+
+
+def extrair_snippets_playwright(items: list[dict]) -> None:
+    """
+    Preenche snippet_ou_trecho nos itens sem conteúdo usando Playwright (browser headless).
+    Modifica a lista in-place. Seguro chamar mesmo se playwright não estiver instalado
+    — loga aviso e retorna sem erro.
+    """
+    import asyncio
+    import sys
+
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        logger.warning(
+            "playwright não instalado. Execute: pip install playwright && "
+            "python -m playwright install chromium"
+        )
+        return
+
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+    asyncio.run(_extrair_snippets_async(items))
 
 
 def _normalizar_url(url: str) -> str:

@@ -22,7 +22,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from scripts.collector import buscar_links, deduplicar, extrair_snippet
+from scripts.collector import buscar_links, deduplicar, extrair_snippets_playwright
 from scripts.classifier import classify_llm
 
 # ── Colunas de saída ──────────────────────────────────────────────────────────
@@ -117,10 +117,8 @@ def main() -> None:
                 prefix, n_brutos, n_deduped,
             )
 
-            # Extrai snippets apenas dos itens que ainda não têm (ex: itens de RI)
-            for item in items:
-                if not item.get("snippet_ou_trecho"):
-                    item["snippet_ou_trecho"] = extrair_snippet(item["url"])
+            # Extrai snippets via Playwright (browser headless — segue JS redirects do Google News)
+            extrair_snippets_playwright(items)
 
             # Classifica cada item
             itens_empresa = []
