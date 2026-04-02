@@ -1,0 +1,10 @@
+anthropic
+python-dotenv
+pandas
+requests
+beautifulsoup4
+feedparser
+lxml
+matplotlib
+seaborn
+reportlab

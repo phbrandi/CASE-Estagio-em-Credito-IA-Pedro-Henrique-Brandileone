@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python test_phase1.py)",
+      "Bash(python -m pip install feedparser beautifulsoup4 requests lxml pandas matplotlib seaborn reportlab)"
+    ]
+  }
+}
