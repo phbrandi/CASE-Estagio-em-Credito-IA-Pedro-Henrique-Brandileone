@@ -778,28 +778,30 @@ function renderForecast(news,stocks){
   const nodata=document.getElementById('cc-nodata'),wrap=document.getElementById('cc-wrap');
   const companies=[...new Set(stocks.map(s=>s.empresa))];
   if(!companies.length){nodata.style.display='block';wrap.style.display='none';return;}
-  // Limitar a 5 empresas no modo "todas" para não poluir
   const filtered=T2.empresa||T2.setor;
-  const shown=filtered?companies:companies.map(e=>({e,s:score(e,news)})).sort((a,b)=>b.s-a.s).slice(0,5).map(x=>x.e);
+  const shown=filtered?companies:companies.map(e=>({e,sc3:score(e,news)})).sort((a,b)=>b.sc3-a.sc3).slice(0,5).map(x=>x.e);
   nodata.style.display='none';wrap.style.display='block';
+
   const allHistDates=[...new Set(stocks.map(s=>s.date))].sort();
   const today=allHistDates[allHistDates.length-1];
-  // Gerar apenas 1 data futura (próxima semana)
-  const futureDates=[];const lastD=new Date(today+'T12:00:00Z');
-  const fd2=new Date(lastD.getTime()+7*86400000);futureDates.push(fd2.toISOString().substring(0,10));
-  const allDates=[...allHistDates,...futureDates];
-  const labels=allDates.map(d=>{const p=d.split('-');return p[2]+'/'+p[1];});
-  const todayIdx=allHistDates.length-1;
+  const lastWeekDate=allHistDates[Math.max(0,allHistDates.length-6)]; // ~5 pregoes atras
+  const nextWeekDate=(()=>{const d=new Date(today+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+7);return d.toISOString().substring(0,10);})();
+  const todayLabel=(()=>{const p=today.split('-');return p[2]+'/'+p[1];})();
+  const lastWeekLabel=(()=>{const p=lastWeekDate.split('-');return p[2]+'/'+p[1];})();
+  const nextWeekLabel=(()=>{const p=nextWeekDate.split('-');return p[2]+'/'+p[1];})();
+  // Eixo X: 3 posicoes fixas — 0=sem.passada, 1=hoje, 2=+1sem
+  const xLabels=[lastWeekLabel+' (sem. passada)',todayLabel+' (hoje)',nextWeekLabel+' (+1 semana)'];
+
   const sentMapV={positivo:1,neutro:0,negativo:-1};
   const datasets=[];
-  let subtitles=[];
+  const subtitles=[];
+
   shown.forEach(emp=>{
     const empStocks=stocks.filter(s=>s.empresa===emp).sort((a,b)=>a.date.localeCompare(b.date));
     if(empStocks.length<5)return;
-    const base=empStocks[0].close||1;
-    const priceMap={};empStocks.forEach(s=>priceMap[s.date]=s.close/base*100);
-    // Dados semanais
+    // Calcular regressao com TODO o historico
     const allSD=[...new Set(empStocks.map(s=>s.date))].sort();
+    const priceByDate={};empStocks.forEach(s=>priceByDate[s.date]=s.close);
     const weekDatesL={};allSD.forEach(d=>{const wk=getWeekKey(d);if(!weekDatesL[wk])weekDatesL[wk]=[];weekDatesL[wk].push(d);});
     const empNews=news.filter(n=>n.empresa===emp);
     const weekNewsL={};empNews.filter(n=>n.data&&n.data.length>=10).forEach(n=>{const wk=getWeekKey(n.data.substring(0,10));if(!weekNewsL[wk])weekNewsL[wk]=[];weekNewsL[wk].push(n);});
@@ -810,12 +812,11 @@ function renderForecast(news,stocks){
       const wN=weekNewsL[wk]||[];
       const sentScore=wN.length?wN.reduce((s,n)=>s+(sentMapV[n.sentimento]||0),0)/wN.length:0;
       const wDs=weekDatesL[wk],nDs=weekDatesL[nwk];
-      const sp=wDs[0]&&priceMap[wDs[0]],ep=nDs&&nDs[nDs.length-1]&&priceMap[nDs[nDs.length-1]];
+      const sp=wDs[0]&&priceByDate[wDs[0]],ep=nDs&&nDs[nDs.length-1]&&priceByDate[nDs[nDs.length-1]];
       if(!sp||!ep)continue;
       regData.push({sentScore,ret:(ep-sp)/sp*100});
     }
     if(regData.length<4)return;
-    // Regressão
     const N=regData.length,mx=regData.reduce((a,d)=>a+d.sentScore,0)/N,my=regData.reduce((a,d)=>a+d.ret,0)/N;
     const sxy=regData.reduce((a,d)=>a+(d.sentScore-mx)*(d.ret-my),0),sxx=regData.reduce((a,d)=>a+(d.sentScore-mx)**2,0);
     const beta=sxx>0?sxy/sxx:0,alpha=my-beta*mx;
@@ -823,51 +824,90 @@ function renderForecast(news,stocks){
     const rStd=Math.sqrt(residuals.reduce((a,r)=>a+r*r,0)/Math.max(residuals.length-1,1));
     const ssTot=regData.reduce((a,d)=>a+(d.ret-my)**2,0),ssRes=regData.reduce((a,d)=>{const yH=alpha+beta*d.sentScore;return a+(d.ret-yH)**2;},0);
     const r2=ssTot>0?Math.max(0,1-ssRes/ssTot):0;
-    // Sentimento atual (últimas 2 semanas de news)
-    const last14=new Date(new Date(today+'T12:00:00Z').getTime()-14*86400000).toISOString().substring(0,10);
-    const recentN=empNews.filter(n=>n.data&&n.data.substring(0,10)>=last14);
+    // Sentimento atual (ultimas 2 semanas)
+    const last14Date=new Date(new Date(today+'T12:00:00Z').getTime()-14*86400000).toISOString().substring(0,10);
+    const recentN=empNews.filter(n=>n.data&&n.data.substring(0,10)>=last14Date);
     const curSent=recentN.length?recentN.reduce((s,n)=>s+(sentMapV[n.sentimento]||0),0)/recentN.length:0;
-    const expWeekRet=(alpha+beta*curSent)/100;
-    const lastPrice=empStocks[empStocks.length-1].close/base*100;
-    const c=sc(emp);
-    // Histórico
-    const histData=allDates.map((_,i)=>({x:i,y:i<=todayIdx&&priceMap[allHistDates[i]]!==undefined?priceMap[allHistDates[i]]:null}));
-    datasets.push({type:'line',label:emp,data:histData,borderColor:c,borderWidth:1.8,pointRadius:0,spanGaps:false,tension:0.1,order:2});
-    // Linha de ligação hoje → projeção (tracejada fina)
-    const linkData=[{x:todayIdx,y:lastPrice},{x:todayIdx+1,y:parseFloat((lastPrice*(1+expWeekRet)).toFixed(2))}];
-    datasets.push({type:'line',label:'',data:linkData,borderColor:c+'88',borderWidth:1.5,borderDash:[5,4],pointRadius:0,spanGaps:false,tension:0,order:2});
-    // Ponto de projeção central (grande)
-    const projY=parseFloat((lastPrice*(1+expWeekRet)).toFixed(2));
-    const band=rStd/100;
-    const upperY=parseFloat((projY*(1+band)).toFixed(2)),lowerY=parseFloat((projY*(1-band)).toFixed(2));
-    const projLabel=emp+' +1sem: '+(expWeekRet>=0?'+':'')+(expWeekRet*100).toFixed(1)+'% (±'+( band*100).toFixed(1)+'% σ)';
-    datasets.push({type:'scatter',label:projLabel,data:[{x:todayIdx+1,y:projY}],
-      backgroundColor:c,borderColor:'#F9FAFB',borderWidth:2,pointRadius:10,pointHoverRadius:13,order:0,
-      _proj:{upper:upperY,lower:lowerY,ret:expWeekRet,r2,curSent,emp}});
-    // Barras de erro ±1σ (linha vertical fina)
-    datasets.push({type:'line',label:'',data:[{x:todayIdx+1,y:upperY},{x:todayIdx+1,y:lowerY}],
-      borderColor:c+'99',borderWidth:3,pointRadius:4,pointStyle:'line',spanGaps:false,tension:0,order:1});
-    const sentIcon=curSent>0.1?'+':curSent<-0.1?'-':'~';
-    subtitles.push(emp+': sent. '+sentIcon+curSent.toFixed(2)+' -> proj. '+(expWeekRet>=0?'+':'')+(expWeekRet*100).toFixed(1)+'% +-'+(band*100).toFixed(1)+'% sigma (R2='+r2.toFixed(2)+')');
+    const expWeekRetPct=(alpha+beta*curSent); // em %
+    // Precos reais para normalizar base 100 na semana passada
+    const pLastWeek=priceByDate[lastWeekDate]||empStocks[Math.max(0,empStocks.length-6)].close;
+    const pToday=priceByDate[today]||empStocks[empStocks.length-1].close;
+    if(!pLastWeek||!pLastWeek)return;
+    const yLastWeek=100;
+    const yToday=parseFloat((pToday/pLastWeek*100).toFixed(2));
+    const yForecast=parseFloat((yToday*(1+expWeekRetPct/100)).toFixed(2));
+    const bandPct=rStd/100;
+    const yUpper=parseFloat((yForecast*(1+bandPct)).toFixed(2));
+    const yLower=parseFloat((yForecast*(1-bandPct)).toFixed(2));
+    const empColor=sc(emp);
+    // Linha semana passada → hoje (solida)
+    datasets.push({type:'line',label:emp,
+      data:[{x:0,y:yLastWeek},{x:1,y:yToday}],
+      borderColor:empColor,borderWidth:2.5,pointRadius:5,pointHoverRadius:7,
+      spanGaps:false,tension:0,order:2});
+    // Linha hoje → projecao (tracejada)
+    datasets.push({type:'line',label:'',
+      data:[{x:1,y:yToday},{x:2,y:yForecast}],
+      borderColor:empColor+'BB',borderWidth:2,borderDash:[6,4],pointRadius:0,
+      spanGaps:false,tension:0,order:2});
+    // Ponto de projecao (grande, borda branca)
+    const projLabel=emp+': '+(expWeekRetPct>=0?'+':'')+expWeekRetPct.toFixed(1)+'% (R2='+r2.toFixed(2)+')';
+    datasets.push({type:'scatter',label:projLabel,
+      data:[{x:2,y:yForecast}],
+      backgroundColor:empColor,borderColor:'#F9FAFB',borderWidth:2,
+      pointRadius:11,pointHoverRadius:14,order:0,
+      _proj:{upper:yUpper,lower:yLower,ret:expWeekRetPct,r2,curSent,emp,yToday}});
+    // Barra de erro vertical +-1sigma
+    datasets.push({type:'line',label:'',
+      data:[{x:2,y:yUpper},{x:2,y:yLower}],
+      borderColor:empColor+'AA',borderWidth:4,pointRadius:5,pointStyle:'line',
+      spanGaps:false,tension:0,order:1});
+    const sentIcon=curSent>0.1?'pos':curSent<-0.1?'neg':'neu';
+    subtitles.push(emp+': sent. '+sentIcon+' ('+curSent.toFixed(2)+') -> '+(expWeekRetPct>=0?'+':'')+expWeekRetPct.toFixed(1)+'% +-'+rStd.toFixed(1)+'% 1-sigma | R2='+r2.toFixed(2));
   });
+
   if(!datasets.length){nodata.style.display='block';wrap.style.display='none';return;}
-  CH.c=new Chart(ctx,{type:'scatter',data:{labels,datasets},
+  CH.c=new Chart(ctx,{type:'scatter',
+    data:{datasets},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{
-        todayLine:{idx:todayIdx},
         legend:{position:'bottom',labels:{color:'#9CA3AF',boxWidth:12,padding:6,font:{size:10},filter:item=>item.text!==''}},
-        tooltip:{callbacks:{label:c2=>{const v=c2.raw,ds=c2.dataset;if(!v||v.y==null)return null;if(ds._proj){const p=ds._proj;return [ds.label,'  Superior: '+p.upper.toFixed(1),'  Central: '+v.y.toFixed(1),'  Inferior: '+p.lower.toFixed(1),'  R² correlação: '+p.r2.toFixed(2)];}return (ds.label?ds.label+': ':'')+v.y.toFixed(1);}}}
+        tooltip:{callbacks:{label:c2=>{
+          const v=c2.raw,ds=c2.dataset;
+          if(!v||v.y==null)return null;
+          if(ds._proj){const p=ds._proj;return [ds.label,'  Hoje: '+p.yToday.toFixed(1),'  Projecao: '+v.y.toFixed(1),'  Superior (+1sigma): '+p.upper.toFixed(1),'  Inferior (-1sigma): '+p.lower.toFixed(1),'  R2 historico: '+p.r2.toFixed(2)];}
+          return (ds.label?ds.label+': ':'')+v.y.toFixed(1);
+        }}}
       },
       scales:{
-        x:{type:'linear',min:0,max:allDates.length-1,ticks:{color:'#9CA3AF',maxTicksLimit:14,callback:v=>{const i=Math.round(v);return labels[i]||'';}},grid:{color:'#1F2937'}},
-        y:{ticks:{color:'#9CA3AF'},grid:{color:'#1F2937'},title:{display:true,text:'Base 100 (1º dia)',color:'#6B7280',font:{size:11}}}
+        x:{type:'linear',min:-0.3,max:2.3,
+          ticks:{color:'#9CA3AF',stepSize:1,callback:v=>{const i=Math.round(v);return xLabels[i]||'';}},
+          grid:{color:'#1F2937'}},
+        y:{ticks:{color:'#9CA3AF'},grid:{color:'#1F2937'},
+          title:{display:true,text:'Preco relativo (base 100 = semana passada)',color:'#6B7280',font:{size:10}}}
       }
     }
   });
-  // Subtítulo com detalhes da projeção
+  // Linha vertical "hoje"
+  const chartInst=CH.c;
+  const origDraw=chartInst.draw.bind(chartInst);
+  chartInst.draw=function(){
+    origDraw();
+    const sc2=chartInst.scales.x,ca=chartInst.chartArea;
+    if(!sc2||!ca)return;
+    const xPx=sc2.getPixelForValue(1);
+    const ct2=chartInst.ctx;
+    ct2.save();ct2.strokeStyle='#4B5563';ct2.lineWidth=1;ct2.setLineDash([4,4]);
+    ct2.beginPath();ct2.moveTo(xPx,ca.top);ct2.lineTo(xPx,ca.bottom);ct2.stroke();
+    ct2.setLineDash([]);ct2.fillStyle='#6B7280';ct2.font='10px sans-serif';ct2.textAlign='left';
+    ct2.fillText('Hoje',xPx+4,ca.top+13);ct2.restore();
+  };
+  // Painel de subtitulos
   let sub=ctx.parentElement.nextElementSibling;
   if(!sub||!sub.classList.contains('proj-sub')){sub=document.createElement('div');sub.className='proj-sub';ctx.parentElement.after(sub);}
-  sub.innerHTML='<div style="font-size:10px;color:#4B5563;margin-top:8px;line-height:1.7">'+subtitles.map(s=>`<div>${s}</div>`).join('')+'<div style="margin-top:4px;font-style:italic">Projeção indicativa — não constitui recomendação de investimento.</div></div>';
+  sub.innerHTML='<div style="font-size:10px;color:#6B7280;margin-top:8px;line-height:1.8;padding:8px 0;border-top:1px solid #1F2937">'+
+    subtitles.map(s=>'<div>'+s+'</div>').join('')+
+    '<div style="color:#374151;margin-top:4px;font-style:italic">Projecao indicativa baseada na correlacao historica sentimento/retorno. Nao constitui recomendacao de investimento.</div></div>';
 }
 
 // ══ Tab 3 ══════════════════════════════════════════════════════
